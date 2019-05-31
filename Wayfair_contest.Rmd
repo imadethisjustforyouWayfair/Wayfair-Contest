@@ -1,0 +1,143 @@
+---
+title: "Wayfair Contest"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+install.packages("tidyverse")
+```
+
+```{r}
+library(tidyverse)
+library(readr)
+```
+
+```{r}
+train_data = read_csv("/Users/tech/Downloads/df_training_scholarjet.csv")
+```
+I split the data into a training set and a validation set. The training set has approximately 80% of the test data entries, and the validation set has approximately 20% of the entries. 
+```{r}
+set.seed(1)
+train_set = train_data[1:22500,]
+validation_set = train_data[22501:28126,]
+#train_ind = sample.int(n = nrow(train_data), size = floor(.80 * nrow(train_data)), replace = FALSE)
+#train_set = train_data[train_ind,]
+#validation_set = train_data[-train_ind,]
+```
+
+
+```{r}
+train_set <- na.pass(train_set)
+```
+
+Logistic regression to estimate whether a B2B customer will purchase or not in the next 30 days. 
+```{r}
+# Wanted to make a model with all factors except revenue_30 to see which factors are significant. Kept getting errors from unclean data and did not have time to clean it as I would like to, but wanted something functional by the deadline. So, here you go!
+
+#glm.fit = glm(convert_30~. -revenue_30, data=train_set, family=binomial(logit))
+#summary(glm.fit)
+#glm.fit = glm(convert_30 ~ currentstatus + companytypegroup + team + customersource + accrole + num_employees + num_purchases_year + cost_purchases_year + enrollmentmethod + dayssincelastord + numvisittotal + sumatcprice + avgatcprice + avgpriceone + avgpricethreeone + numcallsthreeone + decmakerflagone + percemailopenedone + currentapplicability + dayssinceenrollment, data=train_set, family=binomial)
+
+# Logistic regression model using factors that seemed like they might be significant. I am aware that this is not an effective way to choose factors haha. Once again, under a time crunch and wanted something functional. 
+glm.fit = glm(convert_30 ~ companytypegroup + team + accrole + num_employees + num_purchases_year + cost_purchases_year + enrollmentmethod + dayssincelastord + numvisittotal + sumatcprice + avgatcprice + avgpriceone + avgpricethreeone + numcallsthreeone + decmakerflagone + percemailopenedone + currentapplicability + dayssinceenrollment, data=train_set, family=binomial)
+summary(glm.fit)
+```
+
+
+```{r}
+glm.probs = predict(glm.fit, type = "response")
+glm.pred = rep(0, 22500)
+glm.pred[glm.probs > 0.5] = 1
+table(glm.pred, train_set$convert_30)
+#glm.pred
+```
+The diagonal elements of the confusion matrix indicate correct predictions, while the off-diagonals represent incorrect predictions. Hence, this model correctly predicted that customers would convert in the next 30 days 578 times and that they would not 15488 times, for a total of 578 + 15488 = 16066 correct predictions. 
+
+```{r}
+(578 + 15488) / 22500
+```
+In this case, the logistic regression correctly predicted the customer outcomes 71.4% of the time. The false positive error is significantly higher than the false negative error rate (4355 false positive predictions versus 2079 false negative predictions). 
+
+Test on validation data:
+```{r}
+#head(validation_set)
+glm.probs.val = predict(glm.fit, newdata=validation_set, type = "response")
+glm.pred.val = rep(0, 5626)
+glm.pred.val[glm.probs.val > 0.5] = 1
+table(glm.pred.val, validation_set$convert_30)
+```
+
+Oof! Not great! Basically always predicting 0, which is mostly right since the vast majority are not converting in the next 30 days, but there are a lottt of false negatives (266, with only 5 true positives). Would definitely tune up the model more if I had more time. This also depends on whether Wayfair would rather have more false positives or false negatives (which one matters more to you?) 
+
+
+
+Another logistic regression model, using only factors that were significant in the previous model, so that it will be less over-fit (fewer factors, so less over-fitting of the training data): 
+```{r}
+glm.fit.simple = glm(convert_30 ~ currentstatus + dayssincelastord + sumatcprice + customersource, data=train_set, family=binomial)
+summary(glm.fit.simple)
+```
+
+```{r}
+glm.probs.simple = predict(glm.fit.simple, type = "response")
+glm.pred.simple = rep(0, 22500)
+glm.pred.simple[glm.probs.simple > 0.5] = 1
+table(glm.pred.simple, train_set$convert_30)
+```
+
+```{r}
+(19354 + 84) / 22500
+```
+In this case, the logistic regression correctly predicted the customer outcomes 86.4% of the time. The false negative error is significantly higher than the false positive error rate (2573 false negative predictions versus 489 false positive predictions).
+
+
+```{r}
+test_data = read_csv("/Users/tech/Downloads/df_holdout_scholarjet.csv")
+```
+
+Finding predictions for holdout data set:
+```{r}
+glm.probs.test = predict(glm.fit, newdata = test_data, type = "response")
+glm.pred.test = rep(0, 30375)
+glm.pred.test[glm.probs.test > 0.5] = 1
+head(glm.pred.test)
+```
+
+
+Linear regression to estimate revenue prediction in the next 30 days. 
+```{r}
+# Would love to make a better model and take a closer look at which factors are significant, but tragically did not have time to figure out errors that popped up. Here is a functional model with some factors I thought might be significant... 
+
+lm.fit = lm(revenue_30 ~ companytypegroup + team + accrole + num_employees + num_purchases_year + cost_purchases_year + enrollmentmethod + dayssincelastord + numvisittotal + sumatcprice + avgatcprice + avgpriceone + avgpricethreeone + numcallsthreeone + decmakerflagone + percemailopenedone + currentapplicability + dayssinceenrollment, data=train_set)
+summary(lm.fit)
+```
+
+Normally, I would use the validation data set to see how the model does, and tune it up until I am happy with it. Due to lack of time, I am using the (not great) linear regression model that I have made. 
+
+Finding predictions for the holdout data set:
+```{r}
+lm.pred.test = predict(lm.fit, newdata = test_data)
+lm.pred.test[lm.pred.test<0] <- 0
+lm.pred.test[is.na(lm.pred.test)] <- 0
+#head(lm.pred.test)
+```
+
+
+Let's put this in cvs form to submit! 
+```{r}
+CuID = test_data$cuid
+pred_convert_30 = glm.pred.test
+pred_revenue_30 = lm.pred.test
+submission = data.frame(CuID, pred_convert_30, pred_revenue_30)
+head(submission)
+
+write.csv(submission, file = "Wayfair_submission.csv")
+```
+
+
+Just out of curiosity, wanted to see how my logistic regression and linear regression predictions compare to each other. It looks like the predicted revenue is always predicted to be greater than 0 if the customer is predicted to convert in the next 30 days, so that's a good sign! 
+```{r}
+submission[glm.pred.test == 1,]
+```
+
+
